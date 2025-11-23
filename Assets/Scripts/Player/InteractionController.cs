@@ -12,23 +12,33 @@ public class InteractionController : MonoBehaviour
     public List<string> detectableTags = new List<string>() { "Package", "Door" };
 
     [Header("Pickup Settings")]
-    public Transform holdPosition;  // Assign an empty GameObject in front of camera
+    public Transform holdPosition;
     public float pickupSmoothness = 15f;
 
     private GameObject heldObject = null;
     private Rigidbody heldRb = null;
 
-    [Header("UI Texts")]
+    [Header("UI")]
     public GameObject PickupText;
     public GameObject dropText;
+    private PackageDetailUI packageUI;
 
-    public PlayerPickupManager playerPIckupManager;
+    public PlayerPickupManager playerPickupManager;
+
+    private bool isLookingAtPackage = false;
+
+
+    void Start()
+    {
+        packageUI = FindObjectOfType<PackageDetailUI>();
+    }
+
 
     void Update()
     {
         if (heldObject == null)
         {
-            DetectAndPickup();
+            DetectObject();
         }
         else
         {
@@ -37,79 +47,136 @@ public class InteractionController : MonoBehaviour
         }
     }
 
-    void DetectAndPickup()
-{
-    // Always hide text by default
-    PickupText.SetActive(false);
 
-    Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
-    RaycastHit hit;
-
-    int layerMask = (interactLayer.value == 0) ? ~0 : interactLayer;
-
-    if (Physics.Raycast(ray, out hit, interactDistance, layerMask))
+    // --------------------------------------------------------------
+    // RAYCAST + DETECTION
+    // --------------------------------------------------------------
+    void DetectObject()
     {
-        string hitTag = hit.collider.tag;
+        PickupText.SetActive(false);   // hide by default
 
-        if (detectableTags.Contains(hitTag))
+        Ray ray = new Ray(playerCamera.transform.position, playerCamera.transform.forward);
+        RaycastHit hit;
+
+        int layerMask = (interactLayer.value == 0) ? ~0 : interactLayer;
+
+        if (Physics.Raycast(ray, out hit, interactDistance, layerMask))
         {
-            // Show text when looking at a valid object
-            PickupText.SetActive(true);
+            string hitTag = hit.collider.tag;
 
-            Debug.Log("Ray cast on: " + hitTag);
-
-            // Press E to pick up
-            if (Input.GetKeyDown(KeyCode.E) && hitTag == "Package")
+            // ------------------------------
+            // SHOW DETAILS FOR PACKAGE
+            // ------------------------------
+            if (hitTag == "Package")
             {
-                PickupObject(hit.collider.gameObject);
-                PickupText.SetActive(false);
+                ShowPackageDetails(hit);
+                HandlePickup(hit);
+                return;  // skip "looking nowhere"
+            }
+
+            // ------------------------------
+            // ANY OTHER DETECTABLE OBJECT
+            // ------------------------------
+            if (detectableTags.Contains(hitTag))
+            {
+                PickupText.SetActive(true);
+                Debug.Log("Raycast on: " + hitTag);
+                isLookingAtPackage = false;
+
+                packageUI.DectivatePanel(); // hide UI on non-package objects
+                return;
             }
         }
+
+        // ------------------------------------------------------
+        // LOOKING NOWHERE
+        // ------------------------------------------------------
+        if (isLookingAtPackage)
+        {
+            Debug.Log("Looking nowhere");
+            packageUI.DectivatePanel();
+            isLookingAtPackage = false;
+        }
     }
-}
 
-void PickupObject(GameObject obj)
-{
-    dropText.SetActive(true);
-    heldObject = obj;
-    heldRb = obj.GetComponent<Rigidbody>();
 
-    // --- NEW LINE: Get and disable the Collider ---
-    Collider packageCollider = obj.GetComponent<Collider>();
-    if (packageCollider != null)
+
+    // --------------------------------------------------------------
+    // SHOW PACKAGE DETAILS
+    // --------------------------------------------------------------
+    void ShowPackageDetails(RaycastHit hit)
     {
-        packageCollider.enabled = false;
+        PickupText.SetActive(true);
+
+        PackageData data = hit.collider.GetComponent<PackageData>();
+        if (data != null)
+        {
+            Debug.Log($"Looking at Package {data.packageID}");
+            packageUI.ActivatePanel(data);
+        }
+
+        isLookingAtPackage = true;
     }
-    // ------------------------------------------------
 
-    PackageData data = obj.GetComponent<PackageData>();
-    if (data != null)
+
+
+    // --------------------------------------------------------------
+    // PICKUP WITH E
+    // --------------------------------------------------------------
+    void HandlePickup(RaycastHit hit)
     {
-        Debug.Log($"Picked Package ID: {data.packageID}");
-        Debug.Log($"Status: {data.status}");
-        Debug.Log($"Address: {data.address}");
+        if (Input.GetKeyDown(KeyCode.E))
+        {
+            PickupObject(hit.collider.gameObject);
+            PickupText.SetActive(false);
+            packageUI.DectivatePanel();
+        }
+    }
+
+
+
+    // --------------------------------------------------------------
+    // PICKUP LOGIC
+    // --------------------------------------------------------------
+    void PickupObject(GameObject obj)
+    {
+        dropText.SetActive(true);
+        heldObject = obj;
+        heldRb = obj.GetComponent<Rigidbody>();
+
+        // disable collider
+        Collider col = obj.GetComponent<Collider>();
+        if (col != null)
+            col.enabled = false;
 
         // update status
-        data.status = PackageStatus.Picked;
+        PackageData data = obj.GetComponent<PackageData>();
+        if (data != null)
+        {
+            data.status = PackageStatus.Picked;
+            Debug.Log($"Picked package {data.packageID}");
+        }
+
+        if (heldRb != null)
+        {
+            heldRb.useGravity = false;
+            heldRb.isKinematic = true;
+        }
+
+        obj.transform.SetParent(holdPosition);
+        obj.transform.localPosition = Vector3.zero;
+        obj.transform.localRotation = Quaternion.identity;
+
+        playerPickupManager.ObjectPickedUp();
     }
 
-    if (heldRb != null)
-    {
-        heldRb.useGravity = false;
-        heldRb.isKinematic = true;
-    }
-
-    obj.transform.SetParent(holdPosition);
-    obj.transform.localPosition = Vector3.zero;
-    obj.transform.localRotation = Quaternion.identity;
-    playerPIckupManager.ObjectPickedUp();
-
-}
 
 
+    // --------------------------------------------------------------
+    // HOLD OBJECT
+    // --------------------------------------------------------------
     void HoldObject()
     {
-        // Smooth movement to hold position
         heldObject.transform.localPosition = Vector3.Lerp(
             heldObject.transform.localPosition,
             Vector3.zero,
@@ -117,47 +184,46 @@ void PickupObject(GameObject obj)
         );
     }
 
+
+
+    // --------------------------------------------------------------
+    // DROP SYSTEM
+    // --------------------------------------------------------------
     void DropCheck()
     {
-        if (Input.GetKeyDown(KeyCode.Q)) // Press Q to drop
+        if (Input.GetKeyDown(KeyCode.Q))
         {
             DropObject();
         }
     }
 
     void DropObject()
-{
-    dropText.SetActive(false);
-    if (heldObject == null) return;
-
-    // --- NEW LINE: Get and re-enable the Collider ---
-    Collider packageCollider = heldObject.GetComponent<Collider>();
-    if (packageCollider != null)
     {
-        packageCollider.enabled = true;
+        dropText.SetActive(false);
+
+        if (heldObject == null) return;
+
+        Collider col = heldObject.GetComponent<Collider>();
+        if (col != null)
+            col.enabled = true;
+
+        PackageData data = heldObject.GetComponent<PackageData>();
+        if (data != null)
+            data.status = PackageStatus.Waiting;
+
+        heldObject.transform.SetParent(null);
+
+        if (heldRb != null)
+        {
+            heldRb.isKinematic = false;
+            heldRb.useGravity = true;
+            heldRb.linearVelocity = Vector3.zero;
+            heldRb.angularVelocity = Vector3.zero;
+        }
+
+        heldObject = null;
+        heldRb = null;
+
+        playerPickupManager.ObjectDropped();
     }
-    // ------------------------------------------------
-
-    PackageData data = heldObject.GetComponent<PackageData>();
-    if (data != null)
-    {
-        data.status = PackageStatus.Waiting;
-    }
-
-    heldObject.transform.SetParent(null);
-
-    if (heldRb != null)
-    {
-        heldRb.isKinematic = false;
-        heldRb.useGravity = true;
-        heldRb.linearVelocity = Vector3.zero;
-        heldRb.angularVelocity = Vector3.zero;
-    }
-
-    heldObject = null;
-    heldRb = null;
-
-    playerPIckupManager.ObjectDropped();
-}
-
 }

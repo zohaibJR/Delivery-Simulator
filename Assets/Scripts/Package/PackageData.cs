@@ -16,9 +16,5 @@ public class PackageData : MonoBehaviour
     [Header("Package Address")]
     public HouseAddress address;  // Now enum dropdown
 
-    void Start()
-    {
-        // If you want random automatic assignment:
-        // address = (HouseAddress)Random.Range(0, System.Enum.GetValues(typeof(HouseAddress)).Length);
-    }
+    public CustomerNames customerName;
 }
