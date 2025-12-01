@@ -26,8 +26,6 @@ public class InteractionController : MonoBehaviour
     public PlayerPickupManager playerPickupManager;
 
     private bool isLookingAtPackage = false;
-
-
     void Start()
     {
         packageUI = FindObjectOfType<PackageDetailUI>();
